@@ -28,7 +28,6 @@ def load_and_standardize_excel(filepath: str) -> pd.DataFrame:
         
         # Drop the now-useless first column.
         df = df.drop(columns=df.columns[0])
-    # --- END OF SALESFORCE CLEANUP LOGIC ---
 
     # Standardize column headers of the now-clean data
     df.columns = df.columns.str.lower().str.strip()

@@ -15,11 +15,8 @@ class AccountScrubber:
         self.paths = config['Paths']
         self.thresholds = config['Fuzzy_Matching_Thresholds']
         self.weights = config['Scoring_Weights']
-        
-        # --- START OF CHANGE: Load the new penalties section safely ---
-        # This loads the new [Scoring_Penalties] section from your config.
+
         self.penalties = dict(config.items('Scoring_Penalties')) if config.has_section('Scoring_Penalties') else {}
-        # --- END OF CHANGE ---
         
         self.filename = filename
         self.input_path = os.path.join(self.paths['input_directory'], f"{filename}.xlsx")
@@ -84,13 +81,14 @@ class AccountScrubber:
             score += postal_score; details.append(f"Postal({postal_score:.0f})")
 
         # Score LOB
-        lob_sim = fuzz.token_set_ratio(scrub_row.get('lob', ''), db_row.get('lob', ''))
+        lob_sim = fuzz.token_set_ratio(scrub_row.get('normalized_lob', ''), db_row.get('normalized_lob', ''))
         lob_score = float(self.weights.get('primary_lob', 0)) * (lob_sim / 100.0)
         if lob_score > 1: score += lob_score; details.append(f"LOB({lob_score:.0f})")
 
         return score, ",".join(details)
 
     def run(self):
+        """Executes the full, simplified account scrubbing workflow."""
         start_time = time.time()
         print("\n--- Starting Final Account Scrubbing Workflow ---")
 
@@ -132,7 +130,8 @@ class AccountScrubber:
             df = normalization.normalize_text_field(df, 'city', 'city')
             df = normalization.normalize_text_field(df, 'state', 'state')
             df = normalization.normalize_text_field(df, 'country', 'country')
-            df = normalization.normalize_text_field(df, 'lob', 'lob')
+            df = normalization.normalize_text_field(df, 'lob', 'normalized_lob')
+        
         
         accounts_df['search_string'] = (
             accounts_df['normalizedcompany'].fillna('') + ' ' +
@@ -140,19 +139,10 @@ class AccountScrubber:
             accounts_df['normalizedpostal'].fillna('')
         )
 
-        # 3. PERFORM MATCHING
+        # 3. PERFORM MATCHING 
         print("\n[Stage 3/4] Performing email and fuzzy matching...")
-        
-        # Before attempting to merge, validate that the required columns exist.
-        if 'email' not in contacts_df.columns or 'accountid' not in contacts_df.columns:
-            raise KeyError(
-                "\n\nFATAL ERROR: Your 'contact_list.xlsx' file is missing required columns.\n"
-                "It MUST contain both an 'Email' and an 'Account ID' column to link contacts to accounts.\n"
-                "Please re-export your contact report from Salesforce and ensure these two columns are included."
-            )
-            
         email_matches_final = pd.DataFrame()
-        if 'email' in scrub_df.columns:
+        if 'email' in scrub_df.columns and 'email' in contacts_df.columns:
             scrub_df['email'] = scrub_df['email'].astype(str)
             contacts_df['email'] = contacts_df['email'].astype(str)
             
@@ -173,7 +163,7 @@ class AccountScrubber:
                 email_matches_final = email_matches_details.rename(columns={'account_id': 'matched_accountid', 'company': 'matched_company_name'})
                 for col in ['owner_name', 'owner_id', 'account_status', 'total_open_opps', 'lob']:
                     if col not in email_matches_final.columns: email_matches_final[col] = ''
-        
+
         print(f"-> Found {len(email_matches_final)} records with a direct email match.")
         
         ids_to_skip = email_matches_final['original_index'] if not email_matches_final.empty else []
@@ -209,7 +199,7 @@ class AccountScrubber:
                             'match_score': score,
                             'match_type': details,
                             'matched_company_name': candidate.get('company'),
-                            'lob': candidate.get('lob'),
+                            'lob': candidate.get('lob'), 
                             'owner_name': candidate.get('owner_name'),
                             'owner_id': candidate.get('owner_id'),
                             'account_status': candidate.get('account_status'),
@@ -222,7 +212,7 @@ class AccountScrubber:
         fuzzy_matches_df = pd.DataFrame(all_fuzzy_matches)
         print(f"-> Found {len(fuzzy_matches_df)} records with a confident fuzzy match.")
 
-        # 4. FINALIZE AND SAVE
+        # 4. FINALIZE AND SAVE 
         print("\n[Stage 4/4] Finalizing and saving results...")
         final_match_columns = [
             'original_index', 'matched_accountid', 'match_score', 'match_type',
