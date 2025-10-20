@@ -1,138 +1,162 @@
-# Contact and Account List Scrubber
+# Salesforce List Scrubber
 
-## Overview
+## 🚀 Introduction
 
-This project provides a robust, command-line tool for scrubbing external contact and account lists against an internal SQL database. Its primary purpose is to identify existing records, prevent the creation of duplicates, and enrich incoming data with internal Account and Contact IDs.
+This project provides a powerful and flexible command-line tool to scrub third-party lead and contact lists against static Excel exports from Salesforce. Its primary purpose is to identify which records in a new list already exist as Accounts or Contacts in your Salesforce instance, preventing duplicate data entry and enriching incoming leads with existing data.
 
-The application is configuration-driven, allowing for easy updates to database credentials, file paths, and matching logic without altering the source code.
+The tool is designed to be resilient to messy data, using a sophisticated two-stage matching process that combines high-confidence email matching with advanced fuzzy logic scoring.
 
----
+## ✨ Key Features
 
-## Key Features
+-   **Dual Scrubbing Modes**: Perform scrubs for `account` or `contact` records.
+-   **Static File-Based**: Operates entirely on local Excel files (`.xlsx`), requiring no live database connection.
+-   **Intelligent Data Cleaning**: Automatically handles the messy formatting of raw Salesforce report exports (removes junk rows and extra columns).
+-   **Advanced Normalization**: Cleans and standardizes various data fields (company names, websites, phone numbers, addresses) before matching to increase accuracy.
+-   **Two-Stage Matching Logic**:
+    1.  **Email First**: A high-speed, high-confidence pre-match based on contact email addresses.
+    2.  **Fuzzy Logic Scoring**: For remaining records, it uses a TF-IDF similarity search to find the best potential candidates, then scores each one based on a configurable weighted system.
+-   **Highly Configurable**: Easily control matching thresholds, scoring weights for each data field, and penalties for conflicting data via a simple `config.ini` file.
+-   **Flexible Penalty System**: Avoids rigid "knockout" rules by applying configurable penalties for mismatches (e.g., conflicting states), making it robust against dirty data.
+-   **Clear Output**: Generates a primary output file with matched data appended, and a separate file for all unmatched records requiring manual review.
 
-*   **Dual Scrubbing Modes:** Separate, optimized workflows for scrubbing `account` lists and `contact` lists.
-*   **Configurable Matching Logic:** Easily enable or disable matching on fields like street address and website via command-line flags.
-*   **Weighted Scoring System:** A sophisticated scoring mechanism, configurable via `config.ini`, determines the "best" match based on customizable weights for different data fields.
-*   **Auditing Capability:** Generate an optional "base match" file that shows all potential matches for an input record, not just the best one.
-*   **Secure by Design:** Keeps sensitive information like database credentials out of the codebase and Git repository.
-*   **Modular and Maintainable:** The project is structured into logical modules for data I/O, normalization, and scrubbing logic, making it easy to extend and maintain.
+## 📂 Project Structure
+# Salesforce List Scrubber
 
----
+A small, local command-line tool for scrubbing third-party lead/contact lists against static Salesforce exports (Excel). It helps identify existing Accounts and Contacts for incoming lists using an email-first check followed by a robust fuzzy-matching pipeline.
 
-## Project Structure
+## Quick summary
+
+- Inputs: Excel (.xlsx) files — a third-party list placed in `./lists`, plus your Salesforce exports `account_list.xlsx` and `contact_list.xlsx` in the repo root (or paths set in `config.ini`).
+- Modes: `account` (match company-level records) and `contact` (match individual contacts within matched accounts).
+- Output: An `_OUTPUT.xlsx` file with matched metadata appended and an optional `_MANUAL_REVIEW.xlsx` containing rows that didn't meet the matching threshold.
+
+## Features
+
+- Automatic cleanup of raw Salesforce report exports (removes the extra first column and bracketed junk rows).
+- Advanced normalizations for company names, websites, phone numbers, addresses, and postal codes.
+- Two-stage matching: exact email linking (high confidence) followed by TF-IDF + cosine-similarity to surface likely account candidates and a weighted fuzzy scoring system.
+- Configurable scoring weights, thresholds, and penalties through `config.ini`.
+
+## Project layout
 
 ```
-list-scrubber-project/
-│
-├── .gitignore              # Specifies files and folders for Git to ignore
-├── config.example.ini      # Template for the configuration file
-├── main.py                 # The single entry point for the application
-├── README.md               # This documentation file
-├── requirements.txt        # Project dependencies
-│
+.
+├── config.ini                # Configuration (paths, thresholds, weights, penalties)
+├── main.py                   # CLI entrypoint
+├── README.md                 # This file
+├── requirements.txt          # Python dependencies
+├── account_list.xlsx         # (Expected) Salesforce Account export
+├── contact_list.xlsx         # (Expected) Salesforce Contact export
+├── lists/                    # Input lists and script outputs
 └── src/
-    └── datascrubber/
-        ├── __init__.py
-        ├── data_io.py      # Handles all data reading/writing (SQL, Excel)
-        ├── normalization.py# Contains all data cleaning and normalization functions
-        ├── scrubbing.py    # Core logic for the scrubbing process
-        └── sql_queries.py  # Stores SQL query strings
+        └── datascrubber/
+                ├── data_io.py         # Excel loading/saving and SF export cleanup
+                ├── normalization.py   # Normalizers for company, phone, website, postal, etc.
+                └── scrubbing.py      # AccountScrubber and ContactScrubber classes (core logic)
 ```
 
----
+## Setup
 
-## Prerequisites
+1. Create and activate a Python virtual environment (recommended):
 
-*   Python 3.8+
-*   Git
-
----
-
-## Setup and Installation
-
-Follow these steps to set up the project on your local machine.
-
-### 1. Clone the Repository
-```bash
-git clone https://github.com/erik-kreider/list-scrub-automation
-cd list-scrub-automation
+```powershell
+python -m venv venv; .\venv\Scripts\Activate
 ```
 
-### 2. Create and Activate a Virtual Environment
-It is highly recommended to use a virtual environment to manage project dependencies.
+2. Install dependencies:
 
-**On Windows:**
-```bash
-python -m venv venv
-venv\Scripts\activate
-```
-
-**On macOS / Linux:**
-```bash
-python3 -m venv venv
-source venv/bin/activate
-```
-
-### 3. Install Dependencies
-Install all the required Python libraries using the `requirements.txt` file.
-```bash
+```powershell
 pip install -r requirements.txt
 ```
 
-### 4. Configure the Application
-The application uses a `config.ini` file for all its settings. This file must be created locally and will be ignored by Git to protect sensitive information.
+3. Place your Salesforce exports in the project root or update `config.ini` paths:
 
-*   **Create the file:** Copy the provided template.
-    ```bash
-    cp config.example.ini config.ini
-    ```
-*   **Edit `config.ini`:** Open the new `config.ini` file and fill in your specific details under each section:
-    *   `[Database]`: Add your SQL Server credentials (server, database, username, password).
-    *   `[Paths]`: Verify that the input and output directory paths are correct for your machine.
-    *   `[Scoring_*]`: Adjust the scoring weights if needed.
+- `account_list.xlsx` — Salesforce Account export (billing address fields expected)
+- `contact_list.xlsx` — Salesforce Contact export (must include `Email` and `Account ID` columns)
+- Put the list you want to scrub into the `lists/` folder (filename without `.xlsx` will be supplied to the CLI)
 
-> **IMPORTANT:** The `config.ini` file is intentionally listed in `.gitignore`. **NEVER** commit this file to the repository.
+## Configuration (`config.ini`)
 
----
+Key sections and options:
+
+- [Paths]
+    - `input_directory` / `output_directory` — folder for input lists and outputs (default `./lists`)
+    - `account_list_path` / `contact_list_path` — paths to Salesforce exports
+
+- [Fuzzy_Matching_Thresholds]
+    - `minimum_final_score` — account-level scoring threshold for a confident fuzzy match
+    - `minimum_contact_score` — threshold used by contact scrubber (falls back to 60 if not set)
+
+- [Scoring_Weights]
+    - Weights used by AccountScrubber for name, website, phone, street, postal, etc.
+
+- [Scoring_Penalties]
+    - Optional penalty values (e.g. `location_mismatch_penalty`) used instead of knockouts for mismatches
+
+- [Scoring_Contact]
+    - Weights used by ContactScrubber for `email`, `first_name`, `last_name`, and `title`.
+
+Edit `config.ini` to tune the behavior for your data quality and matching preferences.
 
 ## Usage
 
-All commands should be run from the root of the project directory (`list-scrubber-project/`).
+Run from the repository root. Provide the mode (`account` or `contact`) and the filename (without `.xlsx`) you want to process.
 
-### Account Scrub
-This mode scrubs an external list of accounts.
+Account scrub example:
 
-**Basic Command:**
-Provide the `account` mode and the base name of the Excel file (without the `.xlsx` extension).
-```bash
-python main.py account YourAccountFileName
+```powershell
+python .\main.py account my_third_party_list
 ```
 
-**Command with All Options:**
-Enable street matching, website matching, and the creation of an audit file.
-```bash
-python main.py account YourAccountFileName --street-match --website-match --base-match
+This expects `./lists/my_third_party_list.xlsx` to exist. It will produce:
+
+- `./lists/my_third_party_list_OUTPUT.xlsx` — the original rows with matched account metadata appended
+- `./lists/my_third_party_list_MANUAL_REVIEW.xlsx` — (if any) rows that couldn't be confidently matched
+
+Contact scrub example (runs against an account scrub output):
+
+```powershell
+python .\main.py contact my_third_party_list_OUTPUT
 ```
-*   **Output:** This will generate `YourAccountFileName_OUTPUT.xlsx` in the configured output directory.
 
-### Contact Scrub
-This mode scrubs a list of contacts. It requires an account scrub to have been run first, as it uses the output from that process as its input.
+This expects the account scrub output file at `./lists/my_third_party_list_OUTPUT.xlsx`. It will produce `./lists/my_third_party_list_C_OUTPUT.xlsx` with matched contact details appended.
 
-**Command:**
-Provide the `contact` mode and the **original base name** of the file used in the account scrub. The script will automatically look for the `_OUTPUT.xlsx` version.
-```bash
-python main.py contact YourAccountFileName
-```
-*   **Input:** The script will automatically use `YourAccountFileName_OUTPUT.xlsx`.
-*   **Output:** This will generate `YourAccountFileName_C_OUTPUT.xlsx`.
+## How the matching works (brief)
 
----
+1. Account scrub:
+     - Loads input list and Salesforce export files and normalizes columns/values.
+     - Performs an email-first join against the contact export to capture high-confidence hits.
+     - For remaining rows, builds a TF-IDF index over normalized account fields and finds top candidate accounts.
+     - Scores candidates using a weighted fuzzy logic function (name similarity, exact website/phone matches, address similarity, postal code, etc.) and applies configurable penalties for conflicting location data.
 
-## Configuration Details
+2. Contact scrub:
+     - Uses the matched account IDs from an account scrub output and searches the contact export for best contact-level matches within those accounts.
+     - Scores using a contact-specific weight set (email, first/last name, title) and writes contact-level match columns when the score meets the configured threshold.
 
-The behavior of the scrubber can be fine-tuned in `config.ini`:
+## Expected inputs (column names)
 
-*   `[Database]`: Holds all connection details for the source database.
-*   `[Paths]`: Defines where the script looks for input Excel files and where it saves the output files.
-*   `[Scoring_Account]`: Contains the integer weights for each matching field in the account scrub. Higher numbers give a field more importance.
-*   `[Scoring_Contact]`: Contains the integer weights for the contact scrub.
+- The tool attempts to be flexible by normalizing column headers to lowercase. Typical column names used by the code:
+    - For input lists: `company name`, `street address`, `city`, `state`, `postalcode`, `country`, `phone`, `website domain`, `email` (when available)
+    - For account export: `id`, `name`, `billingstreet`, `billingcity`, `billingstate`, `billingpostalcode`, `billingcountry`, `phone`, `website`, `primary_line_of_business__c`, `owner.name`, `ownerid`, `account_status__c`, `total_open_opps__c`
+    - For contact export: must contain `email` and `accountid` columns; other fields used include `id`, `firstname`, `lastname`, `title`, `phone`.
+
+The module `src/datascrubber/data_io.py` lowercases headers and will attempt to detect and clean raw Salesforce report artifacts.
+
+## Developer notes
+
+- Python modules are under `src/datascrubber/`.
+- `AccountScrubber.run()` and `ContactScrubber.run()` provide the main workflows.
+- Normalization helpers live in `normalization.py`. They create new columns prefixed with `normalized` (e.g., `normalizedcompany`, `normalizedphone`).
+
+### Quick tips
+- If the contact scrub raises a KeyError about missing `Email` or `Account ID`, re-export your Salesforce contact report and ensure those columns are included.
+- Tune `Scoring_Weights` and `Fuzzy_Matching_Thresholds` in `config.ini` until results align with your desired precision/recall tradeoff.
+
+## Troubleshooting
+
+- FileNotFoundError: Check that `config.ini` points to the correct account/contact export paths and that your input filename is present in `./lists`.
+- Performance: The fuzzy TF-IDF search is optimized by vectorizing account search strings and scoring the top-N candidates; for very large account exports (>100k rows) you may need to increase memory or pre-filter accounts.
+
+## Acknowledgements
+
+Built with pandas, scikit-learn, scikit-learn's TF-IDF, and thefuzz for string scoring.
