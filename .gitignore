@@ -5,6 +5,9 @@ __pycache__/
 *.pyo
 *.pyd
 
+lists/_cache/
+*.pkl
+
 # C extensions
 *.so
 
